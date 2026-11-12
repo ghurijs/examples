@@ -22,11 +22,13 @@ import {
   SecurityMiddleware,
   XFrameOptionsMiddleware,
 } from '@ghuri/core'
+import { GraphQLConfig } from '@ghuri/graphql'
 import { type DatabaseConfig, d1, postgres } from '@ghuri/orm'
 import { IsAuthenticatedOrReadOnly, PageNumberPagination } from '@ghuri/rest'
 import { r2 } from '@ghuri/storage'
 import { fileSystemStorage } from '@ghuri/storage/fs'
 import { BlogConfig } from './blog/app'
+import { schema } from './schema'
 import { urlpatterns } from './urls'
 
 /**
@@ -76,6 +78,7 @@ export default defineSettings((env) => ({
     AuthTokenConfig,
     AdminConfig,
     AgentsConfig,
+    GraphQLConfig,
     BlogConfig,
   ],
 
@@ -118,6 +121,16 @@ export default defineSettings((env) => ({
   JWT: {
     ACCESS_TOKEN_LIFETIME: 15 * 60,
     REFRESH_TOKEN_LIFETIME: 7 * 24 * 60 * 60,
+  },
+
+  GRAPHQL: {
+    // Default schema of GraphQLView (/graphql/) and `ghuri graphql_schema`.
+    SCHEMA: schema,
+    // Same authentication as the REST API: token / JWT clients skip CSRF; session POSTs need the CSRF token.
+    AUTHENTICATION_CLASSES: [TokenAuthentication, JWTAuthentication, SessionAuthentication],
+    // GraphiQL in the browser: defaults to DEBUG.
+    MAX_DEPTH: 10,
+    RELAY_CONNECTION_MAX_LIMIT: 50,
   },
 
   AGENTS: {

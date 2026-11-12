@@ -1,7 +1,7 @@
 # blog — the Ghuri example project
 
-A small but complete [Ghuri](https://github.com/ghurijs/ghuri) project: a blog API with an admin, an AI agent
-and an MCP server, running on **Cloudflare Workers (D1 + R2)** and — with the same code — on **Node.js with
+A small but complete [Ghuri](https://github.com/ghurijs/ghuri) project: a blog REST and GraphQL API with an admin,
+an AI agent and an MCP server, running on **Cloudflare Workers (D1 + R2)** and — with the same code — on **Node.js with
 PostgreSQL**. It was generated with the real CLI (`ghuri startproject blog` + `ghuri startapp blog`) and then
 filled in.
 
@@ -10,10 +10,11 @@ filled in.
 | Models: `Post` (author FK → user, tags M2M, cover `ImageField`, timestamps), `Tag`, `Comment` | [`src/blog/models.ts`](src/blog/models.ts) |
 | Migrations (written by `ghuri makemigrations blog`) | [`src/blog/migrations/`](src/blog/migrations) |
 | Serializers, viewsets (permissions, search, ordering, filters, pagination, a `@action`) | [`src/blog/serializers.ts`](src/blog/serializers.ts), [`src/blog/views.ts`](src/blog/views.ts), [`src/blog/permissions.ts`](src/blog/permissions.ts) |
+| GraphQL: `PostType` / `TagType` / `CommentType` (Relay nodes, filters, ordering), `BlogQuery`, `createPost` / `updatePost` (`SerializerMutation` over `PostSerializer` + `IsAuthorOrReadOnly`), `deletePost` (`ModelMutation`) | [`src/blog/schema.ts`](src/blog/schema.ts), [`src/schema.ts`](src/schema.ts) |
 | Admin: list filters, search, date hierarchy, comment inline, actions, prepopulated slug | [`src/blog/admin.ts`](src/blog/admin.ts) |
 | `SupportAgent` (`ModelTools(Post)` + `RouterTools`), `AgentRouter`, MCP endpoint | [`src/blog/agents.ts`](src/blog/agents.ts), [`src/urls.ts`](src/urls.ts) |
 | Settings: D1 / PostgreSQL / PGlite, R2 / local disk, token + JWT auth | [`src/settings.ts`](src/settings.ts) |
-| Tests (`@ghuri/orm/testing` + `@ghuri/rest/testing`) | [`src/blog/tests.ts`](src/blog/tests.ts) |
+| Tests (`@ghuri/orm/testing` + `@ghuri/rest/testing` + `@ghuri/graphql/testing`) | [`src/blog/tests.ts`](src/blog/tests.ts) |
 
 ## URLs
 
@@ -24,6 +25,7 @@ filled in.
 | `/api/auth/token/` | `{username, password}` → `{token}` (use `Authorization: Token …`) |
 | `/api/auth/jwt/`, `/api/auth/jwt/refresh/`, `/api/auth/jwt/verify/` | JWT pair (use `Authorization: Bearer …`) |
 | `/api/schema/`, `/api/docs/` | OpenAPI 3.1 and Swagger UI |
+| `/graphql/` | GraphQL over HTTP (`GET` / `POST`); GraphiQL in the browser when `DEBUG=true` |
 | `/agents/support/chat` | The support agent (JSON, or SSE with `?stream=1`); `/agents/support/conversations/` |
 | `/mcp/` | MCP (Streamable HTTP): the API tools + `ask_support`, authenticated with a token |
 | `/media/<path>` | Uploaded files from the default storage |
@@ -52,6 +54,30 @@ curl -X PATCH localhost:8787/api/posts/hello/ -H "Authorization: Token $TOKEN" -
 curl -X POST localhost:8787/mcp/ -H "Authorization: Token $TOKEN" -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
+
+### GraphQL
+
+`GraphQLView` at `/graphql/` serves the schema from `GRAPHQL.SCHEMA` (`src/schema.ts`). Open
+<http://localhost:8787/graphql/> in a browser for GraphiQL (`DEBUG=true` in `.dev.vars`). Authentication is the
+same as the REST API (`GRAPHQL.AUTHENTICATION_CLASSES`): token / JWT clients need no CSRF token; session
+`POST`s (GraphiQL while logged in to the admin) send it automatically.
+
+```bash
+curl -s localhost:8787/graphql/ -H 'Content-Type: application/json' -d '{"query": "{ allPosts(first: 5, filter: { title: { icontains: \"hello\" } }, orderBy: [\"-createdAt\"]) { totalCount pageInfo { hasNextPage endCursor } edges { node { id title excerpt author { username } tags { edges { node { slug } } } comments { totalCount } } } } }"}'
+
+curl -s localhost:8787/graphql/ -H "Authorization: Token $TOKEN" -H 'Content-Type: application/json' -d '{"query": "mutation ($input: CreatePostInput!) { createPost(input: $input) { id slug authorName errors { field messages } } }", "variables": {"input": {"title": "Via GraphQL", "slug": "via-graphql", "tags": ["cloudflare"], "published": true}}}'
+# {"data":{"createPost":{"id":"2","slug":"via-graphql","authorName":"admin","errors":[]}}}
+# validation errors come back in `errors` ([{"field":"slug","messages":["Post with this Slug already exists."]}]);
+# without credentials: errors[0].extensions.code = "UNAUTHENTICATED".
+```
+
+- Queries: `allPosts` (Relay connection: `first` / `after` / `last` / `before`, `filter`, `orderBy`), `allTags`,
+  `post(id:)` and `node(id:)` with global IDs (`base64("PostType:1")`), `me`.
+- Mutations: `createPost` and `updatePost(input: { id, … })` validate and save through the REST `PostSerializer`;
+  `updatePost` / `deletePost` check `IsAuthorOrReadOnly` like the viewset. Cover images are uploaded through REST.
+- Drafts are hidden the same way as in the REST API (`PostType.getQueryset`), and only approved comments are
+  returned (`CommentType.getQueryset`). Relations are batched (DataLoaders), so nested queries don't cause N+1.
+- `npx ghuri graphql_schema --out schema.graphql` writes the SDL (from `GraphQLConfig` in `INSTALLED_APPS`).
 
 ### The agent
 
@@ -103,8 +129,8 @@ DATABASE_ENGINE=pglite SECRET_KEY=… npm start    # Node server (src/server.ts)
 curl localhost:8000/api/posts/                   # the same posts, users, passwords and tokens
 ```
 
-`bash scripts/portability.sh` runs exactly this end to end (fresh D1 → PGlite → Node → HTTP checks). Files in
-R2 are not copied by `copydata`; copy the bucket with `rclone` / `aws s3 sync` (R2 has an S3 API) or point
+`bash scripts/portability.sh` runs exactly this end to end (fresh D1 → PGlite → Node → REST and GraphQL checks).
+Files in R2 are not copied by `copydata`; copy the bucket with `rclone` / `aws s3 sync` (R2 has an S3 API) or point
 `STORAGES` at R2 through `s3({...})` from Node.
 
 ## Tests
@@ -115,7 +141,8 @@ GHURI_TEST_DB=pglite npx ghuri test  # PostgreSQL semantics
 ```
 
 The tests use the real settings and migrations (like Django's test runner), the `APIClient` from
-`@ghuri/rest/testing`, `forceLogin` for the admin, the offline model for the agent and in-memory storage.
+`@ghuri/rest/testing`, `graphqlQuery()` from `@ghuri/graphql/testing`, `forceLogin` for the admin, the offline
+model for the agent and in-memory storage.
 
 ## Notes
 

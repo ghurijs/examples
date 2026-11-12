@@ -3,7 +3,7 @@
 #   1. migrate the local D1 database (wrangler's Miniflare state) and add data through the API on Workers
 #      semantics (here: through the CLI, which talks to the same local D1);
 #   2. migrate a PostgreSQL database (PGlite, in-process — or DATABASE_URL) and copy every row into it;
-#   3. serve the same project on Node against PostgreSQL and read the data back over HTTP.
+#   3. serve the same project on Node against PostgreSQL and read the data back over HTTP (REST and GraphQL).
 # Usage: bash scripts/portability.sh   (from examples/blog; needs `npm install`)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -37,9 +37,13 @@ curl -s --retry 30 --retry-connrefused --retry-delay 1 "http://127.0.0.1:$PORT/"
 BODY="$(curl -s "http://127.0.0.1:$PORT/api/posts/?search=postgres")"
 echo "$BODY"
 echo "$BODY" | grep -q '"slug":"written-on-d1"' && echo "$BODY" | grep -q '"tags":\["portability"\]'
+GQL="$(curl -s -X POST "http://127.0.0.1:$PORT/graphql/" -H 'Content-Type: application/json' \
+  -d '{"query":"{ allPosts(filter: { title: { icontains: \"d1\" } }) { totalCount edges { node { slug author { username } } } } }"}')"
+echo "$GQL"
+echo "$GQL" | grep -q '"slug":"written-on-d1"' && echo "$GQL" | grep -q '"username":"editor"'
 TOKEN="$(curl -s -X POST "http://127.0.0.1:$PORT/api/auth/token/" -H 'Content-Type: application/json' \
   -d "{\"username\":\"editor\",\"password\":\"$GHURI_SUPERUSER_PASSWORD\"}" | sed 's/.*"token":"\([^"]*\)".*/\1/')"
 STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/posts/" \
   -H "Authorization: Token $TOKEN" -H 'Content-Type: application/json' -d '{"title":"Written on Node","slug":"written-on-node"}')"
 test "$STATUS" = 201
-echo "OK: data written on D1 is served by Node + PostgreSQL, and the same password logs in."
+echo "OK: data written on D1 is served by Node + PostgreSQL (REST and GraphQL), and the same password logs in."

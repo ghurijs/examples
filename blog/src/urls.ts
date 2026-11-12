@@ -8,6 +8,7 @@ import {
   TokenVerifyView,
 } from '@ghuri/auth/rest'
 import { include, path } from '@ghuri/core'
+import { GraphQLView } from '@ghuri/graphql'
 import { SchemaView, SwaggerUIView } from '@ghuri/rest'
 import { serveMedia } from '@ghuri/storage'
 import type { Context } from 'hono'
@@ -26,6 +27,7 @@ function home(c: Context) {
     admin: '/admin/',
     api: '/api/',
     docs: '/api/docs/',
+    graphql: '/graphql/',
     mcp: '/mcp/',
   })
 }
@@ -42,6 +44,8 @@ export const urlpatterns = [
   path('api/schema/', SchemaView.asView({ title: 'Blog API', version: '1.0.0' }), { name: 'schema' }),
   path('api/docs/', SwaggerUIView.asView({ urlName: 'schema' }), { name: 'swagger-ui' }),
   path('api/', include(router.urls)),
+  // GraphQL (schema: GRAPHQL.SCHEMA in settings); GraphiQL for browsers when DEBUG=true.
+  path('graphql/', GraphQLView.asView(), { name: 'graphql' }),
   // Agents and MCP.
   path('agents/', include(agents.urls)),
   // MCP (Streamable HTTP): the API tools plus `ask_support` (the agent itself).

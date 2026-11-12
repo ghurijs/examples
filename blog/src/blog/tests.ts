@@ -1,8 +1,15 @@
 // Tests for the blog app — `npx ghuri test` (vitest). They run the real project settings against a fresh test
 // database (D1 through Miniflare by default; GHURI_TEST_DB=pglite or sqlite for the others), with the
 // migrations applied like Django's test runner does.
-import { ContentType, PBKDF2PasswordHasher, Token, User } from '@ghuri/auth'
+import { PBKDF2PasswordHasher, Token, User } from '@ghuri/auth'
 import { createApp, type GhuriContext } from '@ghuri/core'
+import { toGlobalId } from '@ghuri/graphql'
+import {
+  assertResponseHasErrors,
+  assertResponseNoErrors,
+  graphqlQuery,
+  payloadErrors,
+} from '@ghuri/graphql/testing'
 import { setupTestDatabase, type TestBackend, type TestDatabase } from '@ghuri/orm/testing'
 import { APIClient } from '@ghuri/rest/testing'
 import { memoryStorage } from '@ghuri/storage'
@@ -39,8 +46,7 @@ afterAll(async () => {
 })
 
 beforeEach(async () => {
-  await db.flush()
-  ContentType.objects.clearCache()
+  await db.flush() // also recreates content types and permissions (postMigrate)
   api.forceAuthenticate(null)
   api.credentials()
   api.client.clearCookies()
@@ -211,5 +217,132 @@ describe('agents and MCP', () => {
     expect(res.status).toBe(200)
     const names = res.data.result.tools.map((t: any) => t.name)
     expect(names).toEqual(expect.arrayContaining(['posts_list', 'posts_retrieve', 'tags_list', 'ask_support']))
+  })
+})
+
+describe('GraphQL', () => {
+  const gql = (query: string, opts: { variables?: Record<string, unknown>; token?: string } = {}) =>
+    graphqlQuery(api.client, query, {
+      variables: opts.variables,
+      headers: opts.token ? { Authorization: `Token ${opts.token}` } : undefined,
+    })
+
+  it('queries posts with their author, tags and comments (drafts hidden)', async () => {
+    const alice = await makeUser('alice')
+    const news = await Tag.objects.create({ name: 'News', slug: 'news' })
+    const post = await makePost(alice, { title: 'Hello GraphQL', slug: 'hello-graphql' })
+    await post.tags.add(news)
+    await Comment.objects.create({ post, name: 'Ann', body: 'Nice', email: 'ann@example.com' })
+    await Comment.objects.create({ post, name: 'Spam', body: 'Buy now', approved: false })
+    await makePost(alice, { title: 'Draft', slug: 'draft', published: false })
+
+    const res = await gql(`{
+      allPosts {
+        totalCount
+        edges { node { id title excerpt author { username } tags { edges { node { slug } } }
+                       comments { totalCount edges { node { name body } } } } }
+      }
+    }`)
+    assertResponseNoErrors(res)
+    expect(res.data.allPosts.totalCount).toBe(1)
+    const node = res.data.allPosts.edges[0].node
+    expect(node).toMatchObject({ id: toGlobalId('PostType', post.pk), title: 'Hello GraphQL', author: { username: 'alice' } })
+    expect(node.tags.edges.map((e: any) => e.node.slug)).toEqual(['news'])
+    expect(node.comments.totalCount).toBe(1) // only approved comments
+    expect(node.comments.edges[0].node).toEqual({ name: 'Ann', body: 'Nice' })
+
+    const one = await gql('query ($id: ID!) { post(id: $id) { slug } node(id: $id) { ... on PostType { title } } }', {
+      variables: { id: toGlobalId('PostType', post.pk) },
+    })
+    assertResponseNoErrors(one)
+    expect(one.data).toEqual({ post: { slug: 'hello-graphql' }, node: { title: 'Hello GraphQL' } })
+  })
+
+  it('filters, orders and paginates allPosts', async () => {
+    const alice = await makeUser('alice')
+    for (let i = 1; i <= 5; i++) await makePost(alice, { title: `Workers ${i}`, slug: `workers-${i}` })
+    await makePost(alice, { title: 'Postgres on a VPS', slug: 'postgres' })
+
+    const filtered = await gql('{ allPosts(filter: { title: { icontains: "postgres" } }) { edges { node { slug } } } }')
+    assertResponseNoErrors(filtered)
+    expect(filtered.data.allPosts.edges.map((e: any) => e.node.slug)).toEqual(['postgres'])
+
+    const query = `query ($after: String) {
+      allPosts(first: 2, after: $after, filter: { title: { istartswith: "workers" } }, orderBy: ["title"]) {
+        totalCount pageInfo { hasNextPage endCursor } edges { node { slug } }
+      }
+    }`
+    const page1 = await gql(query)
+    assertResponseNoErrors(page1)
+    expect(page1.data.allPosts.totalCount).toBe(5)
+    expect(page1.data.allPosts.edges.map((e: any) => e.node.slug)).toEqual(['workers-1', 'workers-2'])
+    expect(page1.data.allPosts.pageInfo.hasNextPage).toBe(true)
+    const page2 = await gql(query, { variables: { after: page1.data.allPosts.pageInfo.endCursor } })
+    expect(page2.data.allPosts.edges.map((e: any) => e.node.slug)).toEqual(['workers-3', 'workers-4'])
+  })
+
+  it('requires authentication for mutations', async () => {
+    const res = await gql('mutation { createPost(input: { title: "Nope", slug: "nope" }) { id } }')
+    assertResponseHasErrors(res, { code: 'UNAUTHENTICATED' })
+    expect(await Post.objects.count()).toBe(0)
+    const me = await gql('{ me { username } }')
+    expect(me.data).toEqual({ me: null })
+  })
+
+  it('creates a post through PostSerializer, with validation errors in the payload', async () => {
+    const bob = await makeUser('bob')
+    const token = await tokenFor(bob)
+    await Tag.objects.create({ name: 'News', slug: 'news' })
+    await makePost(bob, { slug: 'taken' })
+    const mutation = `mutation ($input: CreatePostInput!) {
+      createPost(input: $input) { id slug authorName tags errors { field messages } clientMutationId }
+    }`
+
+    const invalid = await gql(mutation, { token, variables: { input: { title: '', slug: 'taken' } } })
+    assertResponseNoErrors(invalid)
+    expect(Object.keys(payloadErrors(invalid.data.createPost)).sort()).toEqual(['slug', 'title'])
+
+    const res = await gql(mutation, {
+      token,
+      variables: { input: { title: 'Mine', slug: 'mine', body: 'Hi', tags: ['news'], clientMutationId: 'c1' } },
+    })
+    assertResponseNoErrors(res)
+    expect(res.data.createPost).toMatchObject({ slug: 'mine', authorName: 'bob', tags: ['news'], errors: [], clientMutationId: 'c1' })
+    const post = await Post.objects.get({ slug: 'mine' })
+    expect(post.authorId).toBe(bob.pk)
+    expect(await post.tags.count()).toBe(1)
+  })
+
+  it('lets only the author update or delete a post', async () => {
+    const alice = await makeUser('alice')
+    const mallory = await makeUser('mallory')
+    const post = await makePost(alice, { title: 'Original', slug: 'original' })
+    const id = toGlobalId('PostType', post.pk)
+    const update = 'mutation ($id: ID!) { updatePost(input: { id: $id, title: "Changed" }) { title errors { field messages } } }'
+    const remove = 'mutation ($id: ID!) { deletePost(input: { id: $id }) { ok deletedId } }'
+
+    const denied = await gql(update, { token: await tokenFor(mallory), variables: { id } })
+    assertResponseHasErrors(denied, { code: 'PERMISSION_DENIED' })
+    assertResponseHasErrors(await gql(remove, { token: await tokenFor(mallory), variables: { id } }), {
+      code: 'PERMISSION_DENIED',
+    })
+
+    const aliceToken = await tokenFor(alice)
+    const ok = await gql(update, { token: aliceToken, variables: { id } })
+    assertResponseNoErrors(ok)
+    expect(ok.data.updatePost).toEqual({ title: 'Changed', errors: [] })
+    const deleted = await gql(remove, { token: aliceToken, variables: { id } })
+    assertResponseNoErrors(deleted)
+    expect(deleted.data.deletePost.ok).toBe(true)
+    expect(await Post.objects.filter({ pk: post.pk }).exists()).toBe(false)
+  })
+
+  it('accepts session POSTs only with the CSRF token', async () => {
+    const alice = await makeUser('alice')
+    await api.client.forceLogin(alice)
+    const me = await graphqlQuery(api.client, '{ me { username } }')
+    expect(me.data).toEqual({ me: { username: 'alice' } })
+    const noCsrf = await graphqlQuery(api.client, '{ me { username } }', { csrf: false })
+    expect(noCsrf.status).toBe(403)
   })
 })
