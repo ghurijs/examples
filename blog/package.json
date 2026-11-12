@@ -1,0 +1,47 @@
+{
+  "name": "blog",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "ghuri": {
+    "settings": "src/settings.ts"
+  },
+  "scripts": {
+    "dev": "ghuri runserver",
+    "deploy": "ghuri deploy",
+    "start": "node --import jiti/register src/server.ts",
+    "migrate": "ghuri migrate",
+    "makemigrations": "ghuri makemigrations",
+    "check": "ghuri check",
+    "test": "ghuri test",
+    "typecheck": "tsc --noEmit",
+    "ghuri": "ghuri"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.0",
+    "@ghuri/admin": "^0.1.0-alpha.0",
+    "@ghuri/agents": "^0.1.0-alpha.0",
+    "@ghuri/auth": "^0.1.0-alpha.0",
+    "@ghuri/core": "^0.1.0-alpha.0",
+    "@ghuri/orm": "^0.1.0-alpha.0",
+    "@ghuri/rest": "^0.1.0-alpha.0",
+    "@ghuri/storage": "^0.1.0-alpha.0",
+    "@hono/node-server": "^2.1.0",
+    "ai": "^7.0.0",
+    "hono": "^4.13.0",
+    "jiti": "^2.7.0",
+    "postgres": "^4.1.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261110.0",
+    "@ghuri/cli": "^0.1.0-alpha.0",
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.3",
+    "vitest": "^5.1.0",
+    "wrangler": "^4.160.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,7 @@
+# Copy to .dev.vars for local development (`ghuri startproject` already created one for you).
+# In production, set secrets with:  npx wrangler secret put SECRET_KEY
+SECRET_KEY=ghuri-insecure-change-me
+DEBUG=true
+# DATABASE_URL=postgres://user:password@localhost:5432/blog   # switch DATABASES to Postgres
+# AGENT_MODEL=fake:blog                 # offline agent model (DEBUG only), see README
+# DATABASE_ENGINE=pglite                # PostgreSQL in-process (PGlite) instead of D1, data in PGLITE_DIR

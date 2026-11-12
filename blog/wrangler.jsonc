@@ -1,0 +1,44 @@
+// Cloudflare Workers configuration — https://developers.cloudflare.com/workers/wrangler/configuration/
+// `ghuri` reads the bindings below (locally through wrangler's platform proxy, or remotely with --remote).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "blog",
+  "main": "src/index.ts",
+  // Pin the Workers runtime; bump it deliberately.
+  "compatibility_date": "2026-11-01",
+  // Ghuri needs Node.js APIs on Workers (AsyncLocalStorage, Buffer, …).
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // D1 database used by d1('DB') in src/settings.ts.
+  // Local development (`ghuri runserver`, `ghuri migrate`) works with the placeholder id below.
+  // Before deploying, create the real database and paste the printed database_id here:
+  //   npx wrangler d1 create blog-db
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "blog-db",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+
+  // R2 bucket for uploaded files: r2('MEDIA') in src/settings.ts.
+  // Create it before deploying:  npx wrangler r2 bucket create blog-media
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "blog-media"
+    }
+  ],
+
+  // Optional KV namespace for the cache: kvCache('CACHE') is used when the binding exists.
+  //   npx wrangler kv namespace create CACHE
+  // "kv_namespaces": [
+  //   { "binding": "CACHE", "id": "<namespace id>" }
+  // ],
+
+  // Plain-text variables. Secrets go in .dev.vars locally and `npx wrangler secret put SECRET_KEY` in production.
+  "vars": {
+    "DEBUG": "false"
+  }
+}

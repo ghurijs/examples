@@ -1,0 +1,42 @@
+name: CI
+
+# Runs every example against the published @ghuri/* packages (npm dist-tag `next`).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * *'
+
+jobs:
+  blog:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test-db: [d1, pglite]
+    defaults:
+      run:
+        working-directory: blog
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Migrations are up to date
+        run: npx ghuri makemigrations --check --no-input
+        env:
+          SECRET_KEY: ci
+      - name: Tests (${{ matrix.test-db }})
+        run: npx ghuri test
+        env:
+          GHURI_TEST_DB: ${{ matrix.test-db }}
+      - name: Worker bundle (wrangler deploy --dry-run)
+        if: matrix.test-db == 'd1'
+        run: npx wrangler deploy --dry-run --outdir dist
+      - name: Portability (D1 → PostgreSQL/PGlite → Node)
+        if: matrix.test-db == 'd1'
+        run: bash scripts/portability.sh
