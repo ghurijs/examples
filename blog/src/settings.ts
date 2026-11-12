@@ -24,7 +24,7 @@ import {
 } from '@ghuri/core'
 import { GraphQLConfig } from '@ghuri/graphql'
 import { type DatabaseConfig, d1, postgres } from '@ghuri/orm'
-import { IsAuthenticatedOrReadOnly, PageNumberPagination } from '@ghuri/rest'
+import { IsAuthenticatedOrReadOnly, PageNumberPagination, RestFrameworkConfig } from '@ghuri/rest'
 import { r2 } from '@ghuri/storage'
 import { fileSystemStorage } from '@ghuri/storage/fs'
 import { BlogConfig } from './blog/app'
@@ -79,6 +79,7 @@ export default defineSettings((env) => ({
     AdminConfig,
     AgentsConfig,
     GraphQLConfig,
+    RestFrameworkConfig,
     BlogConfig,
   ],
 
