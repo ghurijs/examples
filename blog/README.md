@@ -97,11 +97,20 @@ curl -X POST localhost:8787/agents/support/chat -H "Authorization: Token $TOKEN"
 Connect Claude Code to the MCP endpoint:
 `claude mcp add --transport http blog http://localhost:8787/mcp/ --header "Authorization: Token $TOKEN"`.
 
+### Background tasks
+
+`src/blog/tasks.ts` has two `@ghuri/tasks` tasks: `publishPost` (publish a draft now, or later with
+`publishPost.using({ runAfter: new Date(at) }).enqueue(post.pk)`) and `purgeRejectedComments`, which
+`periodicTask('0 3 * * *', …)` in `src/blog/app.ts` enqueues every night. On Workers they go through the
+`blog-tasks` Queue (`TASKS_QUEUE` in `wrangler.jsonc`, simulated by `wrangler dev`), and the cron is listed under
+`"triggers"`. `agents.create('support').enqueue(...)` runs the agent as the `agents.run` task the same way.
+
 ### Deploy
 
 ```bash
 npx wrangler d1 create blog-db          # paste database_id into wrangler.jsonc
 npx wrangler r2 bucket create blog-media
+npx wrangler queues create blog-tasks
 npx wrangler secret put SECRET_KEY
 npx ghuri deploy --migrate              # ghuri migrate --remote, then wrangler deploy
 ```
@@ -116,6 +125,9 @@ npx ghuri deploy --migrate              # ghuri migrate --remote, then wrangler 
 | `DATABASE_URL=postgres://…` | `postgres({ url })` | local disk (`MEDIA_ROOT`) — or `s3({...})` |
 | `DATABASE_ENGINE=pglite` | PGlite (PostgreSQL in-process, `PGLITE_DIR`) | local disk |
 
+On PostgreSQL `TASKS.default` is `database()` instead of the Queue: tasks wait in `tasks_dbtaskresult` until
+`npm run worker` (`ghuri db_worker`; add `--beat` in one process for the nightly cron) runs them.
+
 A second alias, `pg`, always points at PostgreSQL (`DATABASE_URL`, else PGlite in `.data/pglite`), so you can
 move the data while the default is still D1:
 
@@ -129,7 +141,8 @@ DATABASE_ENGINE=pglite SECRET_KEY=… npm start    # Node server (src/server.ts)
 curl localhost:8000/api/posts/                   # the same posts, users, passwords and tokens
 ```
 
-`bash scripts/portability.sh` runs exactly this end to end (fresh D1 → PGlite → Node → REST and GraphQL checks).
+`bash scripts/portability.sh` runs exactly this end to end (fresh D1 → PGlite → a task run by `ghuri db_worker` →
+Node → REST and GraphQL checks).
 Files in R2 are not copied by `copydata`; copy the bucket with `rclone` / `aws s3 sync` (R2 has an S3 API) or point
 `STORAGES` at R2 through `s3({...})` from Node.
 
