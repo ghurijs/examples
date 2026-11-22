@@ -27,6 +27,7 @@ import { type DatabaseConfig, d1, postgres } from '@ghuri/orm'
 import { IsAuthenticatedOrReadOnly, PageNumberPagination, RestFrameworkConfig } from '@ghuri/rest'
 import { r2 } from '@ghuri/storage'
 import { fileSystemStorage } from '@ghuri/storage/fs'
+import { cloudflareQueues, database, TasksConfig } from '@ghuri/tasks'
 import { BlogConfig } from './blog/app'
 import { schema } from './schema'
 import { urlpatterns } from './urls'
@@ -66,6 +67,11 @@ function databases(env: Env): Record<string, DatabaseConfig> {
   return { default: defaultDb, pg: postgresDb }
 }
 
+/** Running on PostgreSQL (Node, a VPS) rather than D1 on Workers. */
+function onPostgres(env: Env): boolean {
+  return env.DATABASE_ENGINE === 'pglite' || !!env.DATABASE_URL
+}
+
 export default defineSettings((env) => ({
   SECRET_KEY: env.SECRET_KEY,
   DEBUG: env.DEBUG === 'true',
@@ -80,6 +86,7 @@ export default defineSettings((env) => ({
     AgentsConfig,
     GraphQLConfig,
     RestFrameworkConfig,
+    TasksConfig,
     BlogConfig,
   ],
 
@@ -107,6 +114,15 @@ export default defineSettings((env) => ({
   CACHES: {
     // Workers KV when the CACHE binding exists, otherwise an in-memory cache.
     default: env.CACHE ? kvCache('CACHE') : memoryCache(),
+  },
+
+  TASKS: {
+    // Cloudflare Queues on Workers (binding TASKS_QUEUE in wrangler.jsonc); on PostgreSQL / Node the tasks wait in
+    // the database until `npm run worker` (ghuri db_worker) runs them.
+    default:
+      env.TASKS_QUEUE && !onPostgres(env)
+        ? cloudflareQueues({ queues: { default: 'TASKS_QUEUE' } })
+        : database(),
   },
 
   AUTH_USER_MODEL: 'auth.User',

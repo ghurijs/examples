@@ -31,6 +31,16 @@
     }
   ],
 
+  // Queue for background tasks: cloudflareQueues({ queues: { default: 'TASKS_QUEUE' } }) in src/settings.ts.
+  // `wrangler dev` runs it locally. Create it before deploying:  npx wrangler queues create blog-tasks
+  "queues": {
+    "producers": [{ "binding": "TASKS_QUEUE", "queue": "blog-tasks" }],
+    "consumers": [{ "queue": "blog-tasks", "max_retries": 3 }]
+  },
+
+  // Cron Triggers (UTC): periodicTask('0 3 * * *', purgeRejectedComments) in src/blog/app.ts.
+  "triggers": { "crons": ["0 3 * * *"] },
+
   // Optional KV namespace for the cache: kvCache('CACHE') is used when the binding exists.
   //   npx wrangler kv namespace create CACHE
   // "kv_namespaces": [

@@ -13,11 +13,14 @@ import {
 import { setupTestDatabase, type TestBackend, type TestDatabase } from '@ghuri/orm/testing'
 import { APIClient } from '@ghuri/rest/testing'
 import { memoryStorage } from '@ghuri/storage'
+import { DBTaskResult, periodicTasks, runWorker } from '@ghuri/tasks'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import settings from '../settings'
 import { SupportAgent } from './agents'
 import { registerFakeProvider } from './fake-model'
 import { Comment, Post, Tag } from './models'
+import { publishPost, purgeRejectedComments } from './tasks'
+import { agents } from '../urls'
 
 const env: Record<string, unknown> = { SECRET_KEY: 'test-secret-key', DEBUG: 'false' }
 const app = createApp(settings)
@@ -344,5 +347,59 @@ describe('GraphQL', () => {
     expect(me.data).toEqual({ me: { username: 'alice' } })
     const noCsrf = await graphqlQuery(api.client, '{ me { username } }', { csrf: false })
     expect(noCsrf.status).toBe(403)
+  })
+})
+
+describe('background tasks', () => {
+  it('publishes a draft from the database queue, at the time it was deferred to', async () => {
+    const alice = await makeUser('alice')
+    const draft = await makePost(alice, { title: 'Later', slug: 'later', published: false })
+    const now = await publishPost.enqueue(draft.pk)
+    const later = await publishPost.using({ runAfter: 3600 }).enqueue(draft.pk)
+    expect([now.status, later.status]).toEqual(['READY', 'READY'])
+    expect((await Post.objects.get({ pk: draft.pk })).published).toBe(false)
+
+    expect((await runWorker({ batch: true })).processed).toBe(1) // the deferred one waits
+    await now.refresh()
+    expect([now.status, now.returnValue]).toEqual(['SUCCESSFUL', { slug: 'later' }])
+    expect((await Post.objects.get({ pk: draft.pk })).published).toBe(true)
+    expect((await publishPost.getResult(later.id)).status).toBe('READY')
+  })
+
+  it('purges old rejected comments every night', async () => {
+    expect(periodicTasks().map((p) => [p.cron, p.task.modulePath])).toContainEqual([
+      '0 3 * * *',
+      'blog.purgeRejectedComments',
+    ])
+    const alice = await makeUser('alice')
+    const post = await makePost(alice, {})
+    const old = await Comment.objects.create({ post, name: 'Spam', body: 'buy', approved: false })
+    await Comment.objects.create({ post, name: 'Fresh spam', body: 'buy', approved: false })
+    await Comment.objects.create({ post, name: 'Bob', body: 'Nice', approved: true })
+    await Comment.objects.filter({ pk: old.pk }).update({ createdAt: new Date(Date.now() - 40 * 86_400_000) })
+
+    await app.scheduled({ cron: '0 3 * * *', scheduledTime: Date.now() }, env)
+    expect(await DBTaskResult.objects.filter({ taskPath: 'blog.purgeRejectedComments' }).count()).toBe(1)
+    await runWorker({ batch: true })
+    expect((await Comment.objects.all().fetch()).map((c) => c.name).sort()).toEqual(['Bob', 'Fresh spam'])
+    expect(await purgeRejectedComments.call(30)).toEqual({ deleted: 0 })
+  })
+
+  it('runs the support agent in the background as the agents.run task', async () => {
+    registerFakeProvider()
+    const alice = await makeUser('alice')
+    await makePost(alice, { title: 'Agents on Workers', slug: 'agents' })
+    const settings = ctx.settings.AGENTS as Record<string, unknown>
+    const previous = settings.DEFAULT_MODEL
+    settings.DEFAULT_MODEL = 'fake:blog'
+    try {
+      const { taskResult } = await agents.create('support').enqueue('Which posts are there?', { user: alice })
+      await runWorker({ batch: true })
+      await taskResult!.refresh()
+      expect(taskResult!.status).toBe('SUCCESSFUL')
+      expect(taskResult!.returnValue.text).toBe('I can see 1 post(s): Agents on Workers.')
+    } finally {
+      settings.DEFAULT_MODEL = previous
+    }
   })
 })
