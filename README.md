@@ -7,6 +7,7 @@ framework: CI installs the published `@ghuri/*` packages (`next` tag) and runs e
 | Project | Shows |
 |---|---|
 | [`blog/`](blog) | Models with FK / M2M / `ImageField`, migrations, a DRF-style API (token + JWT auth, permissions, search, ordering, filters, pagination, `@action`), OpenAPI + Swagger UI, the admin (filters, inlines, actions), an AI agent built from the API, an MCP server, and the same code on Node + PostgreSQL (`copydata` from D1). |
+| [`agentdesk/`](agentdesk) | A multi-tenant AI SaaS: workspaces (`@ghuri/tenants`, `TENANTS.REQUIRED`), document uploads embedded in the background (`@ghuri/storage`, `@ghuri/tasks`, `@ghuri/vectors`: Vectorize / pgvector), a support agent that answers from them with memory, streaming and background runs (`@ghuri/agents`), Stripe plans that cap each workspace's tokens (`@ghuri/billing` + usage limits), the admin and DRF throttling. Its README lists the framework bugs it found. |
 
 ## Running an example
 

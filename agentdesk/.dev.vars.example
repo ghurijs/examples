@@ -1,0 +1,17 @@
+# Copy to .dev.vars for local development (git-ignored). In production: npx wrangler secret put <NAME>
+SECRET_KEY=ghuri-insecure-change-me
+DEBUG=true
+
+# Offline mode: no Workers AI, no Vectorize, no API keys (the fake model and embeddings of src/support/fake-model.ts).
+AGENT_MODEL=fake:agentdesk
+EMBEDDING_MODEL=fake:agentdesk
+EMBEDDING_DIMENSIONS=256
+
+# Stripe test mode (https://dashboard.stripe.com/test/apikeys). Never commit real keys. The placeholders below
+# satisfy `ghuri check` (billing.E002 / E003); checkout answers 502 until real test keys are set.
+STRIPE_SECRET_KEY=sk_test_replace_me
+STRIPE_WEBHOOK_SECRET=whsec_replace_me
+
+# Node + Postgres instead of D1 (the database needs the pgvector extension):
+# DATABASE_URL=postgres://user:password@localhost:5432/agentdesk
+# OPENAI_API_KEY=            # embeddings on Postgres (openai:text-embedding-3-small) unless EMBEDDING_MODEL is set

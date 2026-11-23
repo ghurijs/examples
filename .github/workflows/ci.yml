@@ -40,3 +40,40 @@ jobs:
       - name: Portability (D1 → PostgreSQL/PGlite → Node)
         if: matrix.test-db == 'd1'
         run: bash scripts/portability.sh
+
+  agentdesk:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test-db: [d1, pglite, sqlite]
+    defaults:
+      run:
+        working-directory: agentdesk
+    env:
+      SECRET_KEY: ci
+      # Placeholders for `ghuri check` (billing.E002 / E003); tests use a fake Stripe and never these.
+      STRIPE_SECRET_KEY: sk_test_ci_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Migrations are up to date
+        run: npx ghuri makemigrations --check --no-input
+      - name: System checks
+        run: npx ghuri check
+      - name: Tests (${{ matrix.test-db }})
+        run: npx ghuri test
+        env:
+          GHURI_TEST_DB: ${{ matrix.test-db }}
+      - name: Node + PostgreSQL (PGlite + pgvector) smoke test
+        if: matrix.test-db == 'pglite'
+        run: bash scripts/node-smoke.sh
+      - name: Worker bundle in workerd (Miniflare) smoke test
+        if: matrix.test-db == 'd1'
+        run: node scripts/workerd-smoke.mjs
