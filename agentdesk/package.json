@@ -1,0 +1,55 @@
+{
+  "name": "agentdesk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "ghuri": {
+    "settings": "src/settings.ts"
+  },
+  "scripts": {
+    "dev": "ghuri runserver",
+    "deploy": "ghuri deploy",
+    "start": "node --import jiti/register src/server.ts",
+    "migrate": "ghuri migrate",
+    "makemigrations": "ghuri makemigrations",
+    "worker": "ghuri db_worker",
+    "check": "ghuri check",
+    "test": "ghuri test",
+    "typecheck": "tsc --noEmit",
+    "ghuri": "ghuri",
+    "stripe:check": "node --import jiti/register scripts/stripe-check.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.16",
+    "@ghuri/admin": "^0.1.0-alpha.0",
+    "@ghuri/agents": "^0.1.0-alpha.6",
+    "@ghuri/auth": "^0.1.0-alpha.4",
+    "@ghuri/billing": "^0.1.0-alpha.1",
+    "@ghuri/core": "^0.1.0-alpha.5",
+    "@ghuri/orm": "^0.1.0-alpha.6",
+    "@ghuri/rest": "^0.1.0-alpha.2",
+    "@ghuri/storage": "^0.1.0-alpha.1",
+    "@ghuri/tasks": "^0.1.0-alpha.1",
+    "@ghuri/tenants": "^0.1.0-alpha.4",
+    "@ghuri/vectors": "^0.1.0-alpha.0",
+    "@hono/node-server": "^2.1.0",
+    "ai": "^7.0.0",
+    "hono": "^4.13.0",
+    "jiti": "^2.7.0",
+    "postgres": "^4.1.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261110.0",
+    "@electric-sql/pglite-pgvector": "0.0.17",
+    "@ghuri/cli": "^0.1.0-alpha.7",
+    "@types/node": "^24.0.0",
+    "better-sqlite3": "^13.1.0",
+    "typescript": "~5.9.3",
+    "vitest": "^5.1.0",
+    "wrangler": "^4.160.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

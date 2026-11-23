@@ -1,0 +1,45 @@
+// Cloudflare Workers configuration — https://developers.cloudflare.com/workers/wrangler/configuration/
+// `ghuri` reads the bindings below (locally through wrangler's platform proxy, or remotely with --remote).
+// Create the resources once before deploying (see README.md "Run it on Cloudflare").
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agentdesk",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  // Ghuri needs Node.js APIs on Workers (AsyncLocalStorage, Buffer, …).
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // D1: d1('DB') in src/settings.ts.   npx wrangler d1 create agentdesk-db   (paste the database_id)
+  "d1_databases": [
+    { "binding": "DB", "database_name": "agentdesk-db", "database_id": "00000000-0000-0000-0000-000000000000" }
+  ],
+
+  // R2: uploaded documents, r2('MEDIA').   npx wrangler r2 bucket create agentdesk-media
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "agentdesk-media" }],
+
+  // Queues: @ghuri/tasks (document embedding, background agent runs).   npx wrangler queues create agentdesk-tasks
+  // max_retries ≥ the tasks' maxAttempts - 1 (embedDocument and agents.run: 3 attempts).
+  "queues": {
+    "producers": [{ "binding": "TASKS_QUEUE", "queue": "agentdesk-tasks" }],
+    "consumers": [{ "queue": "agentdesk-tasks", "max_retries": 3 }]
+  },
+
+  // Vectorize: vectorize('VECTORIZE') in src/settings.ts. 768 dimensions = @cf/baai/bge-base-en-v1.5.
+  //   npx wrangler vectorize create agentdesk-documents --dimensions=768 --metric=cosine
+  // Miniflare has no Vectorize: `wrangler dev` uses the real index ("remote": true); without the binding the
+  // settings fall back to databaseStore() (exact search in D1).
+  "vectorize": [{ "binding": "VECTORIZE", "index_name": "agentdesk-documents", "remote": true }],
+
+  // Workers AI: the agent's model and the embeddings. Always remote (needs `wrangler login`, even locally).
+  "ai": { "binding": "AI", "remote": true },
+
+  // Optional KV namespace for the cache (throttle history across isolates):  npx wrangler kv namespace create CACHE
+  // "kv_namespaces": [{ "binding": "CACHE", "id": "<namespace id>" }],
+
+  // Plain-text variables. Secrets (SECRET_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET) go in .dev.vars locally and
+  // `npx wrangler secret put <NAME>` in production.
+  "vars": {
+    "DEBUG": "false"
+  }
+}
